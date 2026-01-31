@@ -10,13 +10,30 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const WHISPER_CMD = '/home/art/.nix-profile/bin/whisper';
 const DEFAULT_LANG = 'de';
 const SIZE_THRESHOLD = 100 * 1024; // 100KB
 
-function checkWhisper() {
+/**
+ * Find whisper binary dynamically - no hardcoded paths
+ * Uses WHISPER_CMD env var, or tries to find in PATH
+ */
+function getWhisperCmd() {
+  if (process.env.WHISPER_CMD) {
+    return process.env.WHISPER_CMD;
+  }
   try {
-    execSync(`${WHISPER_CMD} --help`, { encoding: 'utf-8', stdio: 'pipe' });
+    // Use shell builtin 'command -v' instead of 'which' for better portability
+    return execSync('command -v whisper', { shell: true }).toString().trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+function checkWhisper() {
+  const cmd = getWhisperCmd();
+  if (!cmd) return false;
+  try {
+    execSync(`${cmd} --help`, { encoding: 'utf-8', stdio: 'pipe' });
     return true;
   } catch (e) {
     return false;
@@ -40,6 +57,11 @@ function selectModel(filePath) {
 
 function transcribe(audioPath, options = {}) {
   const language = options.language || DEFAULT_LANG;
+  const whisperCmd = getWhisperCmd();
+  
+  if (!whisperCmd) {
+    throw new Error('Whisper not found. Set WHISPER_CMD env var or install whisper.');
+  }
   
   if (!fs.existsSync(audioPath)) {
     throw new Error(`Audio file not found: ${audioPath}`);
@@ -52,7 +74,7 @@ function transcribe(audioPath, options = {}) {
   
   const model = selectModel(audioPath);
   
-  const cmd = `${WHISPER_CMD} "${audioPath}" --model ${model} --language ${language} --output_dir ${path.dirname(audioPath)}`;
+  const cmd = `${whisperCmd} "${audioPath}" --model ${model} --language ${language} --output_dir ${path.dirname(audioPath)}`;
   
   try {
     execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' });
@@ -95,7 +117,7 @@ Status: ✅ Ready!
 }
 
 if (!checkWhisper()) {
-  console.error('❌ Whisper not found at:', WHISPER_CMD);
+  console.error('❌ Whisper not found. Please install whisper or set WHISPER_CMD env var.');
   process.exit(1);
 }
 
