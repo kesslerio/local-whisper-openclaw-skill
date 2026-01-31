@@ -56,7 +56,7 @@ whisper --help
 ### Step 3: Test It
 ```bash
 # Test with a voice message
-node ~/.clawdbot/skills/whisper/scripts/transcribe_local.js ~/.clawdbot/media/inbound/voice.ogg
+node ~/.openclaw/skills/whisper/scripts/transcribe_local.js ~/.openclaw/media/inbound/voice.ogg
 ```
 
 ## Usage
@@ -64,11 +64,11 @@ node ~/.clawdbot/skills/whisper/scripts/transcribe_local.js ~/.clawdbot/media/in
 ### Transcribe Voice Message
 ```bash
 # Auto-detect language (recommended)
-node ~/.clawdbot/skills/whisper/scripts/transcribe_local.js <audio_file>
+node ~/.openclaw/skills/whisper/scripts/transcribe_local.js <audio_file>
 
 # Specify language
-node ~/.clawdbot/skills/whisper/scripts/transcribe_local.js voice.ogg --language de
-node ~/.clawdbot/skills/whisper/scripts/transcribe_local.js voice.mp3 --language en
+node ~/.openclaw/skills/whisper/scripts/transcribe_local.js voice.ogg --language de
+node ~/.openclaw/skills/whisper/scripts/transcribe_local.js voice.mp3 --language en
 ```
 
 ### Environment Variables
@@ -106,7 +106,7 @@ WHISPER_LANGUAGE=auto    # Language: auto (default), en, de, es, fr, etc.
 
 All agents automatically handle voice messages:
 1. Voice message received (OGG format)
-2. Downloaded to `~/.clawdbot/media/inbound/`
+2. Downloaded to `~/.openclaw/media/inbound/`
 3. Transcribed using local Whisper
 4. Text processed by agent
 5. Response generated
@@ -132,7 +132,7 @@ All agents automatically handle voice messages:
 
 ```bash
 # Verify all dependencies
-node ~/.clawdbot/skills/whisper/scripts/transcribe_local.js
+node ~/.openclaw/skills/whisper/scripts/transcribe_local.js
 ```
 
 Should show:
@@ -149,9 +149,9 @@ All dependencies satisfied!
 
 ## Files
 
-- **Skill:** `~/.clawdbot/skills/whisper/`
-- **Script:** `~/.clawdbot/skills/whisper/scripts/transcribe_local.js`
-- **Media:** `~/.clawdbot/media/inbound/`
+- **Skill:** `~/.openclaw/skills/whisper/`
+- **Script:** `~/.openclaw/skills/whisper/scripts/transcribe_local.js`
+- **Media:** `~/.openclaw/media/inbound/`
 - **Transcriptions:** Saved alongside audio files
 
 ## Quick Start
@@ -161,8 +161,8 @@ All dependencies satisfied!
 pip install openai-whisper
 
 # 2. Transcribe a voice message
-node ~/.clawdbot/skills/whisper/scripts/transcribe_local.js \
-  ~/.clawdbot/media/inbound/750c9438-6e10-4aa7-9582-1264984d87af.ogg
+node ~/.openclaw/skills/whisper/scripts/transcribe_local.js \
+  ~/.openclaw/media/inbound/750c9438-6e10-4aa7-9582-1264984d87af.ogg
 
 # 3. Get text output immediately!
 ```

@@ -110,7 +110,7 @@ const audioPath = process.argv[2];
 
 if (!audioPath) {
   console.error('❌ Usage: node transcribe.js <audio_file>');
-  console.error('   Example: node transcribe.js /home/art/.clawdbot/media/inbound/voice.ogg');
+  console.error('   Example: node transcribe.js /home/art/.openclaw/media/inbound/voice.ogg');
   process.exit(1);
 }
 
