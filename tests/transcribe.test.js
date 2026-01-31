@@ -16,6 +16,8 @@ const {
   findWhisperBinary, 
   selectModel, 
   parseArgs,
+  isSupportedFormat,
+  SUPPORTED_FORMATS,
   DEFAULTS 
 } = transcribeModule;
 
@@ -124,6 +126,8 @@ function testScriptExists() {
   assertTrue(content.includes('findWhisperBinary'), 'Script has whisper binary detection');
   assertTrue(content.includes('selectModel'), 'Script has smart model selection');
   assertTrue(content.includes('checkDependencies'), 'Script has dependency checking');
+  assertTrue(content.includes('isSupportedFormat'), 'Script has format validation (no WAV conversion)');
+  assertTrue(content.includes('SUPPORTED_FORMATS'), 'Script defines supported formats');
   assertTrue(content.includes('WHISPER_MODEL'), 'Script uses WHISPER_MODEL env var');
   assertTrue(content.includes('WHISPER_LANGUAGE'), 'Script uses WHISPER_LANGUAGE env var');
 }
@@ -308,11 +312,47 @@ function testModuleExports() {
   assertTrue(typeof transcribeModule.findWhisperBinary === 'function', 'Exports findWhisperBinary function');
   assertTrue(typeof transcribeModule.selectModel === 'function', 'Exports selectModel function');
   assertTrue(typeof transcribeModule.parseArgs === 'function', 'Exports parseArgs function');
+  assertTrue(typeof transcribeModule.isSupportedFormat === 'function', 'Exports isSupportedFormat function');
+  assertTrue(Array.isArray(transcribeModule.SUPPORTED_FORMATS), 'Exports SUPPORTED_FORMATS array');
   assertTrue(typeof transcribeModule.DEFAULTS === 'object', 'Exports DEFAULTS object');
 }
 
 /**
- * Test 9: CLI help output
+ * Test 9: Direct format support (no WAV conversion needed)
+ */
+function testDirectFormatSupport() {
+  console.log('\n🎵 Test Suite: Direct Format Support (Issue #6)');
+  
+  // Test that all supported formats are recognized
+  assertTrue(isSupportedFormat('audio.wav'), 'Supports WAV format');
+  assertTrue(isSupportedFormat('audio.mp3'), 'Supports MP3 format');
+  assertTrue(isSupportedFormat('audio.m4a'), 'Supports M4A format');
+  assertTrue(isSupportedFormat('audio.flac'), 'Supports FLAC format');
+  assertTrue(isSupportedFormat('audio.ogg'), 'Supports OGG format');
+  
+  // Test case insensitivity
+  assertTrue(isSupportedFormat('audio.MP3'), 'Supports uppercase MP3 format');
+  assertTrue(isSupportedFormat('audio.WAV'), 'Supports uppercase WAV format');
+  
+  // Test unsupported formats
+  assertEqual(isSupportedFormat('audio.wma'), false, 'Rejects WMA format');
+  assertEqual(isSupportedFormat('audio.aac'), false, 'Rejects AAC format');
+  assertEqual(isSupportedFormat('audio.unknown'), false, 'Rejects unknown format');
+  
+  // Verify no convertToWav is exported (it was removed)
+  assertEqual(typeof transcribeModule.convertToWav, 'undefined', 'convertToWav function removed from exports');
+  
+  // Verify supported formats list
+  assertTrue(SUPPORTED_FORMATS.includes('.wav'), 'SUPPORTED_FORMATS includes .wav');
+  assertTrue(SUPPORTED_FORMATS.includes('.mp3'), 'SUPPORTED_FORMATS includes .mp3');
+  assertTrue(SUPPORTED_FORMATS.includes('.m4a'), 'SUPPORTED_FORMATS includes .m4a');
+  assertTrue(SUPPORTED_FORMATS.includes('.flac'), 'SUPPORTED_FORMATS includes .flac');
+  assertTrue(SUPPORTED_FORMATS.includes('.ogg'), 'SUPPORTED_FORMATS includes .ogg');
+  assertEqual(SUPPORTED_FORMATS.length, 5, 'Exactly 5 supported formats');
+}
+
+/**
+ * Test 10: CLI help output
  */
 function testCliHelp() {
   console.log('\n📖 Test Suite: CLI Help');
@@ -356,6 +396,7 @@ function runTests() {
     testWhisperBinaryDetection();
     testOldScriptsRemoved();
     testModuleExports();
+    testDirectFormatSupport();
     testCliHelp();
   } catch (e) {
     console.error('\n💥 Test suite error:', e.message);
