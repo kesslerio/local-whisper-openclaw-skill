@@ -35,19 +35,24 @@ const DEFAULTS = {
 
 /**
  * Auto-detect whisper binary location
+ * No hardcoded user paths - uses environment variables and standard paths
  */
 function findWhisperBinary() {
-  // Try 'which whisper' first
-  try {
-    const whichResult = execSync('which whisper', { encoding: 'utf-8', stdio: 'pipe' }).trim();
-    if (whichResult) return whichResult;
-  } catch (e) {
-    // Fall through to other methods
+  // Allow explicit override via environment variable
+  if (process.env.WHISPER_CMD) {
+    return process.env.WHISPER_CMD;
   }
   
-  // Common paths
+  // Use shell builtin 'command -v' for portable detection
+  try {
+    const cmdResult = execSync('command -v whisper', { encoding: 'utf-8', shell: true, stdio: 'pipe' }).trim();
+    if (cmdResult) return cmdResult;
+  } catch (e) {
+    // Fall through to common paths
+  }
+  
+  // Standard paths only (no user-specific hardcoded paths)
   const commonPaths = [
-    '/home/art/.nix-profile/bin/whisper',
     '/usr/bin/whisper',
     '/usr/local/bin/whisper',
     `${process.env.HOME}/.local/bin/whisper`,
