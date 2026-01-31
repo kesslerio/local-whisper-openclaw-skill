@@ -145,24 +145,17 @@ function showInstallInstructions() {
 }
 
 /**
- * Convert audio to WAV format (Whisper requirement)
+ * Supported audio formats (Whisper CLI accepts these directly)
+ * No conversion needed for these formats
  */
-function convertToWav(audioPath) {
-  console.log('\n🎵 Converting audio to WAV format...');
-  
-  const wavPath = audioPath.replace(/\.[^/.]+$/, '.wav');
-  
-  try {
-    execSync(`ffmpeg -i "${audioPath}" -ar 16000 -ac 1 -acodec pcm_s16le "${wavPath}" -y`, {
-      encoding: 'utf-8',
-      stdio: 'pipe'
-    });
-    
-    console.log(`✅ Converted: ${path.basename(wavPath)}`);
-    return wavPath;
-  } catch (error) {
-    throw new Error(`Conversion failed: ${error.message}`);
-  }
+const SUPPORTED_FORMATS = ['.wav', '.mp3', '.m4a', '.flac', '.ogg'];
+
+/**
+ * Check if audio format is supported by Whisper CLI
+ */
+function isSupportedFormat(audioPath) {
+  const ext = path.extname(audioPath).toLowerCase();
+  return SUPPORTED_FORMATS.includes(ext);
 }
 
 /**
@@ -242,7 +235,7 @@ function transcribeWithWhisper(inputPath, options = {}) {
 /**
  * Main transcription function
  */
-async function transcribe(audioPath, options = {}) {
+function transcribe(audioPath, options = {}) {
   console.log(`\n🎙️ Whisper Voice Transcription`);
   console.log('='.repeat(50));
   console.log(`📁 Input: ${audioPath}`);
@@ -253,16 +246,14 @@ async function transcribe(audioPath, options = {}) {
     throw new Error(`Audio file not found: ${audioPath}`);
   }
   
-  // Convert to WAV if needed
-  let inputPath = audioPath;
-  const ext = path.extname(audioPath).toLowerCase();
-  
-  if (ext !== '.wav') {
-    inputPath = convertToWav(audioPath);
+  // Validate audio format
+  if (!isSupportedFormat(audioPath)) {
+    const ext = path.extname(audioPath).toLowerCase() || 'unknown';
+    throw new Error(`Unsupported audio format: ${ext}. Supported formats: ${SUPPORTED_FORMATS.join(', ')}`);
   }
   
-  // Transcribe
-  const result = transcribeWithWhisper(inputPath, options);
+  // Transcribe directly (Whisper CLI supports MP3, M4A, FLAC, OGG natively)
+  const result = transcribeWithWhisper(audioPath, options);
   
   console.log('\n' + '='.repeat(50));
   console.log('📝 Transcription:');
@@ -354,7 +345,7 @@ USAGE:
   node transcribe.js <audio_file> [OPTIONS]
 
 ARGUMENTS:
-  audio_file              Path to audio file (OGG, MP3, WAV, M4A, FLAC)
+  audio_file              Path to audio file (WAV, MP3, M4A, FLAC, OGG)
 
 OPTIONS:
   --model <model>         Model size: tiny, base, small, medium, large
@@ -404,7 +395,7 @@ MODEL SIZES:
 }
 
 // Main entry point
-async function main() {
+function main() {
   const { audioPath, options } = parseArgs(process.argv.slice(2));
   
   if (!audioPath) {
@@ -422,7 +413,7 @@ async function main() {
   }
   
   try {
-    await transcribe(audioPath, options);
+    transcribe(audioPath, options);
     process.exit(0);
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}`);
@@ -441,7 +432,8 @@ module.exports = {
   checkDependencies,
   findWhisperBinary,
   selectModel,
-  convertToWav,
+  isSupportedFormat,
+  SUPPORTED_FORMATS,
   parseArgs,
   DEFAULTS
 };
