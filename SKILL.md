@@ -1,8 +1,8 @@
 ---
-name: whisper
+name: local-whisper
 description: LOCAL voice transcription using OpenAI Whisper (no cloud API, full privacy). Supports English, German, and 97+ languages with automatic detection.
 homepage: https://github.com/openai/whisper
-metadata: {"clawdbot":{"emoji":"🎙️","requires":{"bins":["ffmpeg","whisper","python3"]}}}
+metadata: {"openclaw":{"emoji":"🎙️","requires":{"bins":["whisper","ffmpeg"]},"install":[{"id":"pip","kind":"pip","package":"openai-whisper","bins":["whisper"],"label":"Install Whisper (pip)"}]}}
 ---
 
 # 🎙️ Whisper Voice Transcription (LOCAL)
