@@ -55,26 +55,64 @@ whisper --help
 
 ### Step 3: Test It
 ```bash
+# Check dependencies
+node ~/.openclaw/skills/whisper/transcribe.js --check
+
 # Test with a voice message
-node ~/.openclaw/skills/whisper/scripts/transcribe_local.js ~/.openclaw/media/inbound/voice.ogg
+node ~/.openclaw/skills/whisper/transcribe.js ~/.openclaw/media/inbound/voice.ogg
 ```
 
 ## Usage
 
-### Transcribe Voice Message
+### Basic Usage
 ```bash
-# Auto-detect language (recommended)
-node ~/.openclaw/skills/whisper/scripts/transcribe_local.js <audio_file>
+# Transcribe with auto-detect language and smart model selection
+node transcribe.js <audio_file>
+
+# Example:
+node transcribe.js voice.ogg
+```
+
+### Command Line Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--model` | | Model size: tiny, base, small, medium, large | `small` |
+| `--language` | `-l` | Language code: auto, en, de, es, fr, etc. | `auto` |
+| `--output-dir` | `-o` | Output directory for transcriptions | Same as input |
+| `--smart-model` | | Enable smart model selection | Enabled |
+| `--no-smart-model` | | Disable smart model selection | - |
+| `--check` | `-c` | Check dependencies | - |
+| `--help` | `-h` | Show help | - |
+| `--version` | `-v` | Show version | - |
+
+### Examples
+
+```bash
+# Auto-detect language with smart model selection (recommended)
+node transcribe.js voice.ogg
 
 # Specify language
-node ~/.openclaw/skills/whisper/scripts/transcribe_local.js voice.ogg --language de
-node ~/.openclaw/skills/whisper/scripts/transcribe_local.js voice.mp3 --language en
+node transcribe.js voice.ogg --language de
+node transcribe.js voice.mp3 --language en
+
+# Use specific model
+node transcribe.js voice.ogg --model large
+
+# Custom output directory
+node transcribe.js voice.ogg --output-dir ~/transcriptions/
+
+# Disable smart model, use environment default
+node transcribe.js voice.ogg --no-smart-model
+
+# Check dependencies
+node transcribe.js --check
 ```
 
 ### Environment Variables
 ```bash
-WHISPER_MODEL=small      # Model: tiny, base, small, medium, large
-WHISPER_LANGUAGE=auto    # Language: auto (default), en, de, es, fr, etc.
+WHISPER_MODEL=small      # Default model: tiny, base, small, medium, large
+WHISPER_LANGUAGE=auto    # Default language: auto, en, de, es, fr, etc.
 ```
 
 **Model Sizes:**
@@ -86,7 +124,15 @@ WHISPER_LANGUAGE=auto    # Language: auto (default), en, de, es, fr, etc.
 | medium | 769 MB | ⚡ | ⭐⭐⭐⭐⭐ | ~5GB |
 | large | 1550 MB | 🐢 | ⭐⭐⭐⭐⭐ | ~10GB |
 
-**Recommendation:** `small` model for balance of speed/accuracy
+**Recommendation:** Use smart model selection (default), or `small` model for balance of speed/accuracy
+
+### Smart Model Selection
+
+When enabled (default), the script automatically selects the best model based on file size:
+- **Files < 100KB**: Uses `large` model for maximum accuracy (short messages)
+- **Files ≥ 100KB**: Uses `medium` model for faster processing (longer messages)
+
+Disable with `--no-smart-model` to use your default or explicitly specified model.
 
 ## Supported Formats
 
@@ -123,36 +169,33 @@ All agents automatically handle voice messages:
 → Python package issue: `pip install --upgrade openai-whisper`
 
 **"CUDA out of memory"**
-→ Use smaller model: `WHISPER_MODEL=small node transcribe_local.js`
+→ Use smaller model: `WHISPER_MODEL=small node transcribe.js <file>`
 
 **Slow transcription**
-→ Use smaller model: tiny or base
+→ Use smaller model: tiny or base, or enable smart model selection
 
 ## Installation Check
 
 ```bash
 # Verify all dependencies
-node ~/.openclaw/skills/whisper/scripts/transcribe_local.js
+node transcribe.js --check
 ```
 
 Should show:
 ```
-🎙️ Local Whisper Transcription
-=====================================
+📦 Checking dependencies...
 
-✅ ffmpeg
-✅ whisper
-✅ python3
-
-All dependencies satisfied!
+  ffmpeg:   ✅
+  whisper:  ✅ (/home/art/.nix-profile/bin/whisper)
+  python3:  ✅
 ```
 
 ## Files
 
 - **Skill:** `~/.openclaw/skills/whisper/`
-- **Script:** `~/.openclaw/skills/whisper/scripts/transcribe_local.js`
+- **Script:** `~/.openclaw/skills/whisper/transcribe.js`
 - **Media:** `~/.openclaw/media/inbound/`
-- **Transcriptions:** Saved alongside audio files
+- **Transcriptions:** Saved alongside audio files (or to `--output-dir`)
 
 ## Quick Start
 
@@ -161,15 +204,30 @@ All dependencies satisfied!
 pip install openai-whisper
 
 # 2. Transcribe a voice message
-node ~/.openclaw/skills/whisper/scripts/transcribe_local.js \
+node ~/.openclaw/skills/whisper/transcribe.js \
   ~/.openclaw/media/inbound/750c9438-6e10-4aa7-9582-1264984d87af.ogg
 
 # 3. Get text output immediately!
 ```
 
+## Development
+
+### Running Tests
+```bash
+node tests/transcribe.test.js
+```
+
+### Project Structure
+```
+local-whisper/
+├── transcribe.js          # Main unified CLI
+├── tests/
+│   └── transcribe.test.js # Test suite
+└── SKILL.md               # This documentation
+```
+
 ---
 
-**Status:** ✅ Script Ready | ⏳ Dependencies Required
+**Status:** ✅ Unified CLI Ready | ⏳ Dependencies Required
 
 **Next Step:** Install FFmpeg + Whisper (see Installation section above)
-
