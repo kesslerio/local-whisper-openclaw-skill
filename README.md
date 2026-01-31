@@ -20,6 +20,64 @@ OpenClaw includes a bundled `openai-whisper-api` skill that sends audio to OpenA
 - **Use `openai-whisper-api`** when you need fast transcription and don't mind cloud processing
 - **Use `local-whisper`** when privacy matters, you're offline, or you want to avoid API costs
 
+## ⚠️ Critical: OpenClaw Integration
+
+**This skill is NOT automatically used for voice messages.** You must configure OpenClaw's `tools.media.audio` to use it, otherwise:
+
+1. Without any `tools.media.audio` config: OpenClaw may pass raw audio data to the model, causing **token overflow errors** (e.g., "requested: 446497 tokens" for an 18-second voice message)
+2. With the bundled `openai-whisper-api`: Audio is sent to OpenAI's cloud API
+
+### Configure OpenClaw to Use This Skill
+
+Add this to your `~/.openclaw/openclaw.json`:
+
+```json5
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [
+          {
+            type: "cli",
+            command: "node",
+            args: ["/path/to/skills/local-whisper/transcribe.js", "{{MediaPath}}"]
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/skills/local-whisper` with the actual path where this skill is installed (e.g., `~/.openclaw/skills/local-whisper` or your workspace skills directory).
+
+### Fallback Chain (Recommended)
+
+For reliability, configure a fallback to cloud transcription if local Whisper fails:
+
+```json5
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [
+          // Try local first (free, private)
+          {
+            type: "cli",
+            command: "node",
+            args: ["/path/to/skills/local-whisper/transcribe.js", "{{MediaPath}}"]
+          },
+          // Fallback to OpenAI API if local fails
+          { provider: "openai", model: "gpt-4o-mini-transcribe" }
+        ]
+      }
+    }
+  }
+}
+```
+
 ## Quick Start
 
 ```bash

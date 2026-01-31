@@ -9,6 +9,33 @@ metadata: {"openclaw":{"emoji":"🎙️","requires":{"bins":["whisper","ffmpeg"]
 
 100% private voice transcription using OpenAI Whisper. Audio never leaves your machine.
 
+## ⚠️ Important: OpenClaw Configuration Required
+
+This skill must be configured in OpenClaw's `tools.media.audio` to handle incoming voice messages. Without this config, voice messages may cause token overflow errors or be sent to cloud APIs.
+
+Add to `~/.openclaw/openclaw.json`:
+
+```json5
+{
+  tools: {
+    media: {
+      audio: {
+        enabled: true,
+        models: [
+          {
+            type: "cli",
+            command: "node",
+            args: ["<skill-path>/transcribe.js", "{{MediaPath}}"]
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+Replace `<skill-path>` with the actual path to this skill (e.g., `/home/user/skills/local-whisper`).
+
 ## Quick Start
 
 ```bash
