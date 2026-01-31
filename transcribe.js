@@ -167,19 +167,12 @@ function selectModel(filePath, options = {}) {
     return options.model;
   }
   
-  // Smart selection based on file size
+  // Default to small model (good balance of speed/accuracy)
   const stats = fs.statSync(filePath);
   const sizeKB = stats.size / 1024;
-  
-  if (sizeKB < DEFAULTS.SIZE_THRESHOLD_KB) {
-    console.log(`📏 File size: ${sizeKB.toFixed(1)}KB`);
-    console.log(`🧠 Smart model: large (short messages - max accuracy)`);
-    return 'large';
-  } else {
-    console.log(`📏 File size: ${sizeKB.toFixed(1)}KB`);
-    console.log(`🧠 Smart model: medium (longer messages - faster)`);
-    return 'medium';
-  }
+  console.log(`📏 File size: ${sizeKB.toFixed(1)}KB`);
+  console.log(`🧠 Model: small (default)`);
+  return 'small';
 }
 
 /**
@@ -208,7 +201,10 @@ function transcribeWithWhisper(inputPath, options = {}) {
   // Build command
   let command = `"${whisperPath}" "${inputPath}"`;
   command += ` --model ${model}`;
-  command += ` --language ${language}`;
+  // Only add --language if not "auto" (Whisper auto-detects when flag is omitted)
+  if (language && language.toLowerCase() !== 'auto') {
+    command += ` --language ${language}`;
+  }
   command += ` --output_format all`;  // Outputs .txt, .srt, .vtt, .json
   command += ` --output_dir "${outputDir}"`;
   
