@@ -395,7 +395,7 @@ MODEL SIZES:
 }
 
 // Main entry point
-async function main() {
+function main() {
   const { audioPath, options } = parseArgs(process.argv.slice(2));
   
   if (!audioPath) {
