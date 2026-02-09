@@ -26,12 +26,106 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// Lockfile to prevent concurrent runs
+const LOCKFILE = '/tmp/whisper-transcribe.lock';
+
 // Configuration defaults
 const DEFAULTS = {
   MODEL: process.env.WHISPER_MODEL || 'small',
   LANGUAGE: process.env.WHISPER_LANGUAGE || 'auto',
   SIZE_THRESHOLD_KB: 100  // File size threshold for smart model selection
 };
+
+/**
+ * Lockfile management to prevent concurrent runs
+ */
+function acquireLock(force = false) {
+  // Check if lockfile exists
+  if (fs.existsSync(LOCKFILE)) {
+    try {
+      const pid = parseInt(fs.readFileSync(LOCKFILE, 'utf-8').trim(), 10);
+      
+      // Check if process is still running
+      const isRunning = !isNaN(pid) && isProcessRunning(pid);
+      
+      if (isRunning) {
+        if (force) {
+          // Kill existing process and remove lock
+          try {
+            process.kill(pid, 'SIGTERM');
+            console.log(`⚠️  Killed existing whisper process (PID: ${pid})`);
+            // Wait a moment for cleanup
+            execSync('sleep 0.5', { stdio: 'pipe' });
+          } catch (e) {
+            // Process might have exited already
+          }
+          fs.unlinkSync(LOCKFILE);
+        } else {
+          console.error(`\n❌ Error: Another whisper transcribe is already running (PID: ${pid}). Use --force to override.`);
+          process.exit(1);
+        }
+      } else {
+        // Stale lock - remove it
+        console.log('⚠️  Removing stale lockfile from dead process');
+        fs.unlinkSync(LOCKFILE);
+      }
+    } catch (e) {
+      // If we can't read the lockfile, try to remove it
+      try {
+        fs.unlinkSync(LOCKFILE);
+      } catch (e2) {
+        // Ignore errors
+      }
+    }
+  }
+  
+  // Create lockfile with current PID
+  fs.writeFileSync(LOCKFILE, process.pid.toString());
+}
+
+function releaseLock() {
+  try {
+    if (fs.existsSync(LOCKFILE)) {
+      const lockPid = fs.readFileSync(LOCKFILE, 'utf-8').trim();
+      // Only remove if it's our lock
+      if (lockPid === process.pid.toString()) {
+        fs.unlinkSync(LOCKFILE);
+      }
+    }
+  } catch (e) {
+    // Ignore cleanup errors
+  }
+}
+
+function isProcessRunning(pid) {
+  try {
+    // Check if process exists by sending signal 0
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function setupLockCleanup() {
+  // Clean up lock on normal exit
+  process.on('exit', releaseLock);
+  
+  // Clean up on signals
+  ['SIGINT', 'SIGTERM', 'SIGUSR1', 'SIGUSR2'].forEach(signal => {
+    process.on(signal, () => {
+      releaseLock();
+      process.exit(1);
+    });
+  });
+  
+  // Clean up on uncaught exceptions
+  process.on('uncaughtException', (err) => {
+    console.error('\n❌ Uncaught exception:', err.message);
+    releaseLock();
+    process.exit(1);
+  });
+}
 
 /**
  * Auto-detect whisper binary location
@@ -271,7 +365,8 @@ function parseArgs(args) {
     model: null,
     language: null,
     outputDir: null,
-    smartModel: true
+    smartModel: true,
+    force: false
   };
   
   let audioPath = null;
@@ -299,6 +394,10 @@ function parseArgs(args) {
         break;
       case '--no-smart-model':
         options.smartModel = false;
+        break;
+      case '--force':
+      case '-f':
+        options.force = true;
         break;
       case '--help':
       case '-h':
@@ -349,6 +448,7 @@ OPTIONS:
   --output-dir <dir>      Output directory for transcriptions
   --smart-model           Enable smart model selection (default: on)
   --no-smart-model        Disable smart model selection
+  --force, -f             Force run, kill any existing whisper process
   --check, -c             Check dependencies and show status
   --help, -h              Show this help message
   --version, -v           Show version
@@ -394,6 +494,10 @@ MODEL SIZES:
 function main() {
   const { audioPath, options } = parseArgs(process.argv.slice(2));
   
+  // Acquire lock before any processing
+  acquireLock(options.force);
+  setupLockCleanup();
+  
   if (!audioPath) {
     showHelp();
     process.exit(1);
@@ -431,5 +535,10 @@ module.exports = {
   isSupportedFormat,
   SUPPORTED_FORMATS,
   parseArgs,
-  DEFAULTS
+  DEFAULTS,
+  acquireLock,
+  releaseLock,
+  isProcessRunning,
+  setupLockCleanup,
+  LOCKFILE
 };
