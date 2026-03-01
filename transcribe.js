@@ -22,7 +22,7 @@
  *   WHISPER_LANGUAGE=auto    Default language
  */
 
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -137,10 +137,12 @@ function findWhisperBinary() {
     return process.env.WHISPER_CMD;
   }
   
-  // Use shell builtin 'command -v' for portable detection
+  // Use spawn to avoid shell evaluation.
   try {
-    const cmdResult = execSync('command -v whisper', { encoding: 'utf-8', shell: true, stdio: 'pipe' }).trim();
-    if (cmdResult) return cmdResult;
+    const cmdResult = spawnSync('which', ['whisper'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    if (cmdResult.status === 0 && cmdResult.stdout.trim()) {
+      return cmdResult.stdout.trim();
+    }
   } catch (e) {
     // Fall through to common paths
   }
@@ -184,7 +186,8 @@ function checkDependencies() {
   try {
     const whisperPath = findWhisperBinary();
     if (whisperPath) {
-      execSync(`"${whisperPath}" --help`, { encoding: 'utf-8', stdio: 'pipe' });
+      const check = spawnSync(whisperPath, ['--help'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+      if (check.status !== 0) throw new Error('whisper --help failed');
       deps.whisper = whisperPath;
     }
   } catch (e) {
@@ -292,18 +295,26 @@ function transcribeWithWhisper(inputPath, options = {}) {
   
   console.log(`🎙️ Transcribing with Whisper...`);
   
-  // Build command
-  let command = `"${whisperPath}" "${inputPath}"`;
-  command += ` --model ${model}`;
+  const args = [
+    inputPath,
+    '--model',
+    model,
+    '--output_format',
+    'all',
+    '--output_dir',
+    outputDir
+  ];
   // Only add --language if not "auto" (Whisper auto-detects when flag is omitted)
   if (language && language.toLowerCase() !== 'auto') {
-    command += ` --language ${language}`;
+    args.push('--language', language);
   }
-  command += ` --output_format all`;  // Outputs .txt, .srt, .vtt, .json
-  command += ` --output_dir "${outputDir}"`;
-  
+
   try {
-    execSync(command, { encoding: 'utf-8', stdio: 'pipe' });
+    const result = spawnSync(whisperPath, args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+    if (result.status !== 0) {
+      const err = (result.stderr || result.stdout || '').trim();
+      throw new Error(err || `whisper exited with status ${result.status}`);
+    }
     
     // Read the transcription
     const txtPath = inputPath.replace(/\.[^/.]+$/, '.txt');
