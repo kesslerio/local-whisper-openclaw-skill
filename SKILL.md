@@ -60,11 +60,9 @@ Add to `~/.openclaw/openclaw.json`:
 
 Replace `<skill-path>` with the actual path to this skill (e.g., `/home/user/skills/local-whisper`).
 
-For this checkout, the source skill path is usually:
-
-```text
-/home/art/projects/skills/shared/local-whisper
-```
+The source skill path is wherever this repo is checked out under your skills
+directory (that is what `<skill-path>` above refers to) — derive it, don't assume
+a specific account layout.
 
 Installed Alphaclaw/OpenClaw agents may also have a copied skill at:
 
@@ -72,7 +70,7 @@ Installed Alphaclaw/OpenClaw agents may also have a copied skill at:
 /data/.openclaw/skills/local-whisper
 ```
 
-Prefer the installed `/data/.openclaw/skills/local-whisper` path in Alphaclaw `openclaw.json`. Prefer the source path when developing or testing the skill itself. Treat `/home/art/.openclaw/skills/local-whisper` as a possible read-only mirror; do not assume it is the active writable install.
+Prefer the installed `/data/.openclaw/skills/local-whisper` path in Alphaclaw `openclaw.json`. Prefer the source path when developing or testing the skill itself. Treat `~/.openclaw/skills/local-whisper` as a possible read-only mirror; do not assume it is the active writable install.
 
 ## Quick Start
 

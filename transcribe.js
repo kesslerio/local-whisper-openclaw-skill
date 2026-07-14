@@ -158,9 +158,11 @@ function findWhisperBinary() {
     return process.env.WHISPER_CMD;
   }
   
-  // Use spawn to avoid shell evaluation.
+  // Portable PATH lookup via the POSIX `command -v` builtin — no external `which`
+  // binary required (which is absent in some minimal containers/venvs). The command
+  // string is fixed (no user input interpolated), so there is no shell-injection risk.
   try {
-    const cmdResult = spawnSync('which', ['whisper'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const cmdResult = spawnSync('sh', ['-c', 'command -v whisper'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
     if (cmdResult.status === 0 && cmdResult.stdout.trim()) {
       return cmdResult.stdout.trim();
     }
