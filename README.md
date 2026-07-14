@@ -37,11 +37,21 @@ Add this to your `~/.openclaw/openclaw.json`:
     media: {
       audio: {
         enabled: true,
+        timeoutSeconds: 300,
         models: [
           {
             type: "cli",
             command: "node",
-            args: ["/path/to/skills/local-whisper/transcribe.js", "{{MediaPath}}"]
+            args: [
+              "/path/to/skills/local-whisper/transcribe.js",
+              "{{MediaPath}}",
+              "--model",
+              "small",
+              "--language",
+              "auto",
+              "--output-dir",
+              "{{OutputDir}}"
+            ]
           }
         ]
       }
@@ -50,11 +60,13 @@ Add this to your `~/.openclaw/openclaw.json`:
 }
 ```
 
-Replace `/path/to/skills/local-whisper` with the actual path where this skill is installed (e.g., `~/.openclaw/skills/local-whisper` or your workspace skills directory).
+Replace `/path/to/skills/local-whisper` with the actual path where this skill is installed. In Alphaclaw, that is commonly `/data/.openclaw/skills/local-whisper`; source development usually happens in a workspace skills directory.
+
+The `--output-dir "{{OutputDir}}"` argument is important. It lets OpenClaw read the final `.txt` transcript instead of relying on progress output from the wrapper. The `300` second timeout avoids cutting off local CPU transcription on longer voice messages.
 
 ### Fallback Chain (Recommended)
 
-For reliability, configure a fallback to cloud transcription if local Whisper fails:
+For reliability, you can configure a fallback to cloud transcription if local Whisper fails. Skip this if privacy must be strict.
 
 ```json5
 {
@@ -62,12 +74,22 @@ For reliability, configure a fallback to cloud transcription if local Whisper fa
     media: {
       audio: {
         enabled: true,
+        timeoutSeconds: 300,
         models: [
           // Try local first (free, private)
           {
             type: "cli",
             command: "node",
-            args: ["/path/to/skills/local-whisper/transcribe.js", "{{MediaPath}}"]
+            args: [
+              "/path/to/skills/local-whisper/transcribe.js",
+              "{{MediaPath}}",
+              "--model",
+              "small",
+              "--language",
+              "auto",
+              "--output-dir",
+              "{{OutputDir}}"
+            ]
           },
           // Fallback to OpenAI API if local fails
           { provider: "openai", model: "gpt-4o-mini-transcribe" }
@@ -86,7 +108,21 @@ pip install openai-whisper
 
 # Transcribe
 node transcribe.js audio.ogg
+
+# Transcribe an OpenClaw inbound audio file
+node transcribe.js /data/.openclaw/media/inbound/example.ogg --model small --language auto --output-dir /tmp/openclaw-whisper
 ```
+
+## Agent Behavior
+
+Agents that have this skill should use it for voice recordings whenever a local media path is available. If a provider-generated transcript is empty, partial, or just Whisper metadata, agents should retry the concrete file path locally before asking the user to resend.
+
+Common OpenClaw media locations:
+
+- `/data/.openclaw/media/inbound/`
+- `~/.openclaw/media/inbound/`
+
+Agents should not claim that `media://` files are inaccessible when the message context includes a resolved filesystem path.
 
 ## Requirements
 
