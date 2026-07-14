@@ -40,47 +40,68 @@ const DEFAULTS = {
  * Lockfile management to prevent concurrent runs
  */
 function acquireLock(force = false) {
-  // Check if lockfile exists
-  if (fs.existsSync(LOCKFILE)) {
+  // 'wx' = create-and-fail-if-exists: an ATOMIC acquire with no TOCTOU window
+  // between "check" and "write", so two concurrent transcribes (the exact case
+  // this lock guards — e.g. two voice messages arriving together) can never both
+  // proceed. On EEXIST we inspect the holder and retry the atomic create.
+  for (let attempt = 0; attempt < 100; attempt++) {
     try {
-      const pid = parseInt(fs.readFileSync(LOCKFILE, 'utf-8').trim(), 10);
-      
-      // Check if process is still running
-      const isRunning = !isNaN(pid) && isProcessRunning(pid);
-      
-      if (isRunning) {
-        if (force) {
-          // Kill existing process and remove lock
-          try {
-            process.kill(pid, 'SIGTERM');
-            console.log(`⚠️  Killed existing whisper process (PID: ${pid})`);
-            // Wait a moment for cleanup
-            execSync('sleep 0.5', { stdio: 'pipe' });
-          } catch (e) {
-            // Process might have exited already
-          }
-          fs.unlinkSync(LOCKFILE);
-        } else {
-          console.error(`\n❌ Error: Another whisper transcribe is already running (PID: ${pid}). Use --force to override.`);
-          process.exit(1);
-        }
-      } else {
-        // Stale lock - remove it
-        console.log('⚠️  Removing stale lockfile from dead process');
-        fs.unlinkSync(LOCKFILE);
-      }
+      const fd = fs.openSync(LOCKFILE, 'wx');
+      fs.writeSync(fd, process.pid.toString());
+      fs.closeSync(fd);
+      return;
     } catch (e) {
-      // If we can't read the lockfile, try to remove it
-      try {
-        fs.unlinkSync(LOCKFILE);
-      } catch (e2) {
-        // Ignore errors
-      }
+      if (e.code !== 'EEXIST') throw e;
     }
+
+    // Lockfile exists — inspect the holder.
+    let pid = NaN;
+    try {
+      pid = parseInt(fs.readFileSync(LOCKFILE, 'utf-8').trim(), 10);
+    } catch (e) {
+      continue; // unreadable / removed mid-read — retry the atomic create
+    }
+
+    if (isNaN(pid) || !isProcessRunning(pid)) {
+      console.log('⚠️  Removing stale lockfile from dead process');
+      try { fs.unlinkSync(LOCKFILE); } catch (e) { /* another run cleaned it */ }
+      continue;
+    }
+
+    // Holder is alive.
+    if (!force) {
+      console.error(`\n❌ Error: Another whisper transcribe is already running (PID: ${pid}). Use --force to override.`);
+      process.exit(1);
+    }
+
+    // --force: only signal a PID we can confirm is a whisper/transcribe process,
+    // so a recycled PID (the lockfile lives in world-writable /tmp) can never
+    // SIGTERM an unrelated process.
+    if (isTranscribeProcess(pid)) {
+      try {
+        process.kill(pid, 'SIGTERM');
+        console.log(`⚠️  Killed existing whisper process (PID: ${pid})`);
+      } catch (e) { /* already exited */ }
+    } else {
+      console.log(`⚠️  Lock PID ${pid} is not a whisper process (recycled?); removing stale lock`);
+    }
+    try { fs.unlinkSync(LOCKFILE); } catch (e) { /* raced with holder cleanup */ }
+    // loop retries the atomic create
   }
-  
-  // Create lockfile with current PID
-  fs.writeFileSync(LOCKFILE, process.pid.toString());
+  console.error('\n❌ Error: could not acquire the transcribe lock after repeated retries.');
+  process.exit(1);
+}
+
+function isTranscribeProcess(pid) {
+  // Best-effort identity check for the --force kill path. On Linux read the
+  // holder's cmdline; if /proc is unreadable (dead/foreign process) don't kill;
+  // if /proc is absent (non-Linux) fall back to prior --force behaviour.
+  try {
+    const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
+    return /whisper|transcribe/i.test(cmdline);
+  } catch (e) {
+    return process.platform !== 'linux';
+  }
 }
 
 function releaseLock() {
@@ -503,16 +524,12 @@ MODEL SIZES:
 // Main entry point
 function main() {
   const { audioPath, options } = parseArgs(process.argv.slice(2));
-  
-  // Acquire lock before any processing
-  acquireLock(options.force);
-  setupLockCleanup();
-  
+
   if (!audioPath) {
     showHelp();
     process.exit(1);
   }
-  
+
   // Check dependencies
   const deps = checkDependencies();
   if (!deps.whisper || !deps.ffmpeg) {
@@ -521,7 +538,12 @@ function main() {
     showInstallInstructions();
     process.exit(1);
   }
-  
+
+  // Acquire the single-run lock only for the actual transcription (help and
+  // dependency checks don't need it).
+  acquireLock(options.force);
+  setupLockCleanup();
+
   try {
     transcribe(audioPath, options);
     process.exit(0);
