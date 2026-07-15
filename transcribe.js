@@ -41,6 +41,7 @@ const DEFAULTS = {
  * Lockfile management to prevent concurrent runs
  */
 function acquireLock(force = false) {
+  let emptyReads = 0;
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
       const fd = fs.openSync(LOCKFILE, 'wx');
@@ -56,13 +57,30 @@ function acquireLock(force = false) {
       }
     }
 
-    let pid;
+    let raw;
     try {
-      pid = parseInt(fs.readFileSync(LOCKFILE, 'utf-8').trim(), 10);
+      raw = fs.readFileSync(LOCKFILE, 'utf-8').trim();
     } catch (error) {
-      continue;
+      continue; // removed mid-read — retry the atomic create
     }
 
+    if (raw === '') {
+      // The winner created the lockfile but hasn't written its PID yet (the
+      // openSync→writeSync window). Treat as in-progress and retry rather than
+      // reclaim, so we never unlink a live lock. Bounded so a process that
+      // crashed mid-acquire (permanently-empty file) is eventually reclaimed.
+      if (++emptyReads > 40) {
+        console.log('⚠️  Removing lockfile left empty by a crashed acquisition');
+        try { fs.unlinkSync(LOCKFILE); } catch (error) { /* raced */ }
+        emptyReads = 0;
+      } else {
+        sleepSync(25);
+      }
+      continue;
+    }
+    emptyReads = 0;
+
+    const pid = parseInt(raw, 10);
     const isRunning = !isNaN(pid) && isProcessRunning(pid);
     if (isRunning) {
       if (!force) {
@@ -141,8 +159,12 @@ function waitForProcessExit(pid, timeoutMs) {
 
 function isTranscribeProcess(pid) {
   try {
-    const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
-    return /whisper|transcribe/i.test(cmdline);
+    const argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8').split('\0');
+    // The lock is only ever held by this node wrapper (`node …/transcribe.js`), so
+    // match that specifically rather than any cmdline merely containing "whisper"
+    // or "transcribe" — which would let --force SIGTERM an unrelated recycled PID
+    // (e.g. an editor open on a transcript).
+    return /node/i.test(argv[0] || '') && argv.some(a => a.endsWith('transcribe.js'));
   } catch (error) {
     return process.platform !== 'linux';
   }
@@ -158,6 +180,17 @@ function killActiveChild(signal) {
   }
 }
 
+function terminateActiveChild(signal) {
+  // Kill the running whisper child AND wait (bounded) for it to actually exit, so
+  // the lock isn't released — and reclaimed by a --force'ing process — while the
+  // dying child is still writing the same output files.
+  if (activeChild) {
+    const pid = activeChild.pid;
+    killActiveChild(signal);
+    if (pid) waitForProcessExit(pid, 3000);
+  }
+}
+
 function setupLockCleanup() {
   // Clean up lock on normal exit
   process.on('exit', () => {
@@ -168,16 +201,16 @@ function setupLockCleanup() {
   // Clean up on signals
   ['SIGINT', 'SIGTERM', 'SIGUSR1', 'SIGUSR2'].forEach(signal => {
     process.on(signal, () => {
-      killActiveChild(signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM');
+      terminateActiveChild(signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM');
       releaseLock();
       process.exit(1);
     });
   });
-  
+
   // Clean up on uncaught exceptions
   process.on('uncaughtException', (err) => {
     console.error('\n❌ Uncaught exception:', err.message);
-    killActiveChild('SIGTERM');
+    terminateActiveChild('SIGTERM');
     releaseLock();
     process.exit(1);
   });
