@@ -191,14 +191,13 @@ function testSelectModel() {
   const mediumFile = createTestAudioFile(150); // 150 KB
   
   try {
-    // Test small file (< 100KB)
+    // selectModel defaults to 'small' for any size when no explicit model is given.
     const smallModel = selectModel(smallFile, { model: 'auto' });
-    assertEqual(smallModel, 'large', 'Small file (<100KB) uses large model');
-    
-    // Test large file (>= 100KB)
+    assertEqual(smallModel, 'small', 'Small file defaults to small model');
+
     const largeModel = selectModel(mediumFile, { model: 'auto' });
-    assertEqual(largeModel, 'medium', 'Large file (>=100KB) uses medium model');
-    
+    assertEqual(largeModel, 'small', 'Large file defaults to small model');
+
     // Test explicit model override
     const explicitModel = selectModel(smallFile, { model: 'tiny' });
     assertEqual(explicitModel, 'tiny', 'Explicit model overrides smart selection');

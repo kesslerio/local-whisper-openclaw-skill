@@ -22,12 +22,13 @@
  *   WHISPER_LANGUAGE=auto    Default language
  */
 
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 // Lockfile to prevent concurrent runs
 const LOCKFILE = '/tmp/whisper-transcribe.lock';
+let activeChild = null;
 
 // Configuration defaults
 const DEFAULTS = {
@@ -40,47 +41,66 @@ const DEFAULTS = {
  * Lockfile management to prevent concurrent runs
  */
 function acquireLock(force = false) {
-  // Check if lockfile exists
-  if (fs.existsSync(LOCKFILE)) {
+  for (let attempt = 0; attempt < 100; attempt++) {
     try {
-      const pid = parseInt(fs.readFileSync(LOCKFILE, 'utf-8').trim(), 10);
-      
-      // Check if process is still running
-      const isRunning = !isNaN(pid) && isProcessRunning(pid);
-      
-      if (isRunning) {
-        if (force) {
-          // Kill existing process and remove lock
-          try {
-            process.kill(pid, 'SIGTERM');
-            console.log(`⚠️  Killed existing whisper process (PID: ${pid})`);
-            // Wait a moment for cleanup
-            execSync('sleep 0.5', { stdio: 'pipe' });
-          } catch (e) {
-            // Process might have exited already
-          }
-          fs.unlinkSync(LOCKFILE);
-        } else {
-          console.error(`\n❌ Error: Another whisper transcribe is already running (PID: ${pid}). Use --force to override.`);
-          process.exit(1);
-        }
-      } else {
-        // Stale lock - remove it
-        console.log('⚠️  Removing stale lockfile from dead process');
-        fs.unlinkSync(LOCKFILE);
-      }
-    } catch (e) {
-      // If we can't read the lockfile, try to remove it
+      const fd = fs.openSync(LOCKFILE, 'wx');
       try {
-        fs.unlinkSync(LOCKFILE);
-      } catch (e2) {
-        // Ignore errors
+        fs.writeSync(fd, process.pid.toString());
+      } finally {
+        fs.closeSync(fd);
+      }
+      return;
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        throw error;
       }
     }
+
+    let pid;
+    try {
+      pid = parseInt(fs.readFileSync(LOCKFILE, 'utf-8').trim(), 10);
+    } catch (error) {
+      continue;
+    }
+
+    const isRunning = !isNaN(pid) && isProcessRunning(pid);
+    if (isRunning) {
+      if (!force) {
+        console.error(`\n❌ Error: Another whisper transcribe is already running (PID: ${pid}). Use --force to override.`);
+        process.exit(1);
+      }
+
+      if (isTranscribeProcess(pid)) {
+        try {
+          process.kill(pid, 'SIGTERM');
+          console.log(`⚠️  Killed existing whisper process (PID: ${pid})`);
+        } catch (error) {
+          // Process might have exited already.
+        }
+        // Wait (bounded) for it to actually exit before reclaiming the lock, so the
+        // new run can't start writing the same output files as the dying one.
+        waitForProcessExit(pid, 2000);
+      } else {
+        console.log(`⚠️  Existing lock PID ${pid} is not a Whisper process; removing lockfile`);
+      }
+
+      try {
+        fs.unlinkSync(LOCKFILE);
+      } catch (error) {
+        // The lock may have been removed by another process.
+      }
+      continue;
+    }
+
+    console.log('⚠️  Removing stale lockfile from dead process');
+    try {
+      fs.unlinkSync(LOCKFILE);
+    } catch (error) {
+      // The lock may have been removed by another process.
+    }
   }
-  
-  // Create lockfile with current PID
-  fs.writeFileSync(LOCKFILE, process.pid.toString());
+
+  throw new Error('Unable to acquire transcription lock after 100 attempts');
 }
 
 function releaseLock() {
@@ -107,13 +127,48 @@ function isProcessRunning(pid) {
   }
 }
 
+function sleepSync(ms) {
+  // Synchronous sleep with no child process; acquireLock is sync and --force is rare.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function waitForProcessExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessRunning(pid) && Date.now() < deadline) {
+    sleepSync(50);
+  }
+}
+
+function isTranscribeProcess(pid) {
+  try {
+    const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
+    return /whisper|transcribe/i.test(cmdline);
+  } catch (error) {
+    return process.platform !== 'linux';
+  }
+}
+
+function killActiveChild(signal) {
+  if (activeChild) {
+    try {
+      activeChild.kill(signal);
+    } catch (error) {
+      // Child might have exited already.
+    }
+  }
+}
+
 function setupLockCleanup() {
   // Clean up lock on normal exit
-  process.on('exit', releaseLock);
+  process.on('exit', () => {
+    killActiveChild('SIGTERM');
+    releaseLock();
+  });
   
   // Clean up on signals
   ['SIGINT', 'SIGTERM', 'SIGUSR1', 'SIGUSR2'].forEach(signal => {
     process.on(signal, () => {
+      killActiveChild(signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM');
       releaseLock();
       process.exit(1);
     });
@@ -122,6 +177,7 @@ function setupLockCleanup() {
   // Clean up on uncaught exceptions
   process.on('uncaughtException', (err) => {
     console.error('\n❌ Uncaught exception:', err.message);
+    killActiveChild('SIGTERM');
     releaseLock();
     process.exit(1);
   });
@@ -137,9 +193,9 @@ function findWhisperBinary() {
     return process.env.WHISPER_CMD;
   }
   
-  // Use spawn to avoid shell evaluation.
+  // Use the POSIX shell builtin so no external `which` binary is required.
   try {
-    const cmdResult = spawnSync('which', ['whisper'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const cmdResult = spawnSync('sh', ['-c', 'command -v whisper'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
     if (cmdResult.status === 0 && cmdResult.stdout.trim()) {
       return cmdResult.stdout.trim();
     }
@@ -275,7 +331,7 @@ function selectModel(filePath, options = {}) {
 /**
  * Run Whisper transcription
  */
-function transcribeWithWhisper(inputPath, options = {}) {
+async function transcribeWithWhisper(inputPath, options = {}) {
   const whisperPath = findWhisperBinary();
   if (!whisperPath) {
     throw new Error('Whisper binary not found. Please install: pip install openai-whisper');
@@ -310,11 +366,34 @@ function transcribeWithWhisper(inputPath, options = {}) {
   }
 
   try {
-    const result = spawnSync(whisperPath, args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
-    if (result.status !== 0) {
-      const err = (result.stderr || result.stdout || '').trim();
-      throw new Error(err || `whisper exited with status ${result.status}`);
-    }
+    await new Promise((resolve, reject) => {
+      // stdout is 'ignore' (not 'pipe'): whisper streams the full transcript to
+      // stdout, which we do NOT read (the result is read from the .txt output file).
+      // An undrained stdout pipe would block the child once it fills the OS pipe
+      // buffer (~64 KiB) and hang the wrapper forever on long transcriptions.
+      const child = spawn(whisperPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      activeChild = child;
+      let stderr = '';
+
+      child.stderr.on('data', data => {
+        stderr += data.toString();
+      });
+      child.on('error', error => {
+        if (activeChild === child) activeChild = null;
+        reject(error);
+      });
+      child.on('close', (code, signal) => {
+        if (activeChild === child) activeChild = null;
+        if (signal) {
+          reject(new Error(`whisper terminated by signal ${signal}`));
+        } else if (code !== 0) {
+          const err = stderr.trim();
+          reject(new Error(err || `whisper exited with status ${code}`));
+        } else {
+          resolve();
+        }
+      });
+    });
     
     // Read the transcription
     const txtPath = inputPath.replace(/\.[^/.]+$/, '.txt');
@@ -336,7 +415,7 @@ function transcribeWithWhisper(inputPath, options = {}) {
 /**
  * Main transcription function
  */
-function transcribe(audioPath, options = {}) {
+async function transcribe(audioPath, options = {}) {
   console.log(`\n🎙️ Whisper Voice Transcription`);
   console.log('='.repeat(50));
   console.log(`📁 Input: ${audioPath}`);
@@ -354,7 +433,7 @@ function transcribe(audioPath, options = {}) {
   }
   
   // Transcribe directly (Whisper CLI supports MP3, M4A, FLAC, OGG natively)
-  const result = transcribeWithWhisper(audioPath, options);
+  const result = await transcribeWithWhisper(audioPath, options);
   
   console.log('\n' + '='.repeat(50));
   console.log('📝 Transcription:');
@@ -502,12 +581,8 @@ MODEL SIZES:
 }
 
 // Main entry point
-function main() {
+async function main() {
   const { audioPath, options } = parseArgs(process.argv.slice(2));
-  
-  // Acquire lock before any processing
-  acquireLock(options.force);
-  setupLockCleanup();
   
   if (!audioPath) {
     showHelp();
@@ -522,19 +597,21 @@ function main() {
     showInstallInstructions();
     process.exit(1);
   }
+
+  acquireLock(options.force);
+  setupLockCleanup();
   
-  try {
-    transcribe(audioPath, options);
-    process.exit(0);
-  } catch (error) {
-    console.error(`\n❌ Error: ${error.message}`);
-    process.exit(1);
-  }
+  await transcribe(audioPath, options);
+  process.exit(0);
 }
 
 // Run if called directly
 if (require.main === module) {
-  main();
+  main().catch(err => {
+    console.error(`\n❌ Error: ${err.message}`);
+    releaseLock();
+    process.exit(1);
+  });
 }
 
 // Export for testing

@@ -34,7 +34,7 @@ Add to `~/.openclaw/openclaw.json`:
 }
 ```
 
-Replace `<skill-path>` with the actual path to this skill (e.g., `/home/user/skills/local-whisper`).
+Replace `<skill-path>` with the path to the checked-out skill repository. For a mirrored OpenClaw install, use `~/.openclaw/skills/local-whisper`.
 
 ## Quick Start
 
